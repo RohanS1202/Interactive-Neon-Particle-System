@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Neon Particle System</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; color: white; font-family: 'Poppins', sans-serif; }
+        canvas { display: block; }
+        #videoElement { display: none; }
+        
+        /* Fullscreen Loading overlay */
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #00ffff;
+            letter-spacing: 3px;
+            text-shadow: 0 0 15px rgba(0, 255, 255, 0.8);
+            z-index: 20;
+            animation: pulse 1.5s infinite ease-in-out;
+            pointer-events: none;
+        }
+
+        /* Modern Glassmorphism UI Panel */
+        #ui-container {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 15, 15, 0.55);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 25px 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), inset 0 0 20px rgba(255, 255, 255, 0.05);
+            z-index: 10;
+            pointer-events: none;
+            opacity: 0; /* Hidden initially */
+            transition: opacity 0.8s ease;
+        }
+
+        .title { 
+            margin: 0 0 20px 0; 
+            font-size: 1.3rem; 
+            font-weight: 600; 
+            text-transform: uppercase; 
+            letter-spacing: 3px; 
+            color: #00ffff; 
+            text-shadow: 0 0 10px rgba(0,255,255,0.6); 
+        }
+
+        .controls-grid { 
+            display: grid; 
+            grid-template-columns: repeat(2, 1fr); 
+            gap: 15px 30px; 
+            font-size: 0.9rem; 
+            color: #d1d1d1; 
+        }
+
+        .control-item { 
+            display: flex; 
+            align-items: center; 
+            gap: 10px; 
+        }
+
+        .icon { font-size: 1.3rem; }
+
+        #status-bar { 
+            margin-top: 20px; 
+            padding-top: 15px; 
+            border-top: 1px solid rgba(255, 255, 255, 0.15); 
+            width: 100%; 
+            text-align: center; 
+        }
+
+        #currentShapeLabel { 
+            font-size: 1.2rem; 
+            font-weight: 600; 
+            color: #ff00ff; 
+            text-shadow: 0 0 15px rgba(255,0,255,0.7); 
+            display: inline-block;
+        }
+
+        /* Animations */
+        @keyframes pulse { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+        @keyframes shapePop { 
+            0% { transform: scale(1); } 
+            50% { transform: scale(1.15); text-shadow: 0 0 25px rgba(255,0,255,1); } 
+            100% { transform: scale(1); } 
+        }
+        .pop { animation: shapePop 0.3s ease-out; }
+
+    </style>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+</head>
+<body>
+
+    <div id="loading">INITIALIZING AI & CAMERA...</div>
+
+    <div id="ui-container">
+        <h2 class="title">Neon Particles</h2>
+        <div class="controls-grid">
+            <div class="control-item"><span class="icon">🖐️</span> <span>Fingers Up to Shape</span></div>
+            <div class="control-item"><span class="icon">🤏</span> <span>Pinch to Scale</span></div>
+            <div class="control-item"><span class="icon">↔️</span> <span>Move L/R for Color</span></div>
+            <div class="control-item"><span class="icon">👋</span> <span>Wave to Push</span></div>
+        </div>
+        <div id="status-bar">
+            <div id="currentShapeLabel">Shape: Sphere</div>
+        </div>
+    </div>
+
+    <video id="videoElement" autoplay playsinline></video>
+    
+    <script>
+        // --- 1. THREE.JS & POST-PROCESSING SETUP ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050505, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 50;
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: false }); 
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        const renderScene = new THREE.RenderPass(scene, camera);
+        const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+        bloomPass.threshold = 0.1;
+        bloomPass.strength = 2.5; 
+        bloomPass.radius = 0.5;
+
+        const composer = new THREE.EffectComposer(renderer);
+        composer.addPass(renderScene);
+        composer.addPass(bloomPass);
+
+        // --- 2. PARTICLE SYSTEM SETUP ---
+        const particleCount = 6000;
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const targetPositions = new Float32Array(particleCount * 3);
+        
+        for(let i = 0; i < particleCount * 3; i++) {
+            positions[i] = (Math.random() - 0.5) * 50;
+            targetPositions[i] = positions[i];
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = 16; canvas.height = 16;
+        const context = canvas.getContext('2d');
+        const gradient = context.createRadialGradient(8, 8, 0, 8, 8, 8);
+        gradient.addColorStop(0, 'rgba(255,255,255,1)');
+        gradient.addColorStop(1, 'rgba(255,255,255,0)');
+        context.fillStyle = gradient;
+        context.fillRect(0, 0, 16, 16);
+        const particleTexture = new THREE.CanvasTexture(canvas);
+
+        const material = new THREE.PointsMaterial({ 
+            size: 0.6, 
+            color: 0x00ffff, 
+            map: particleTexture,
+            transparent: true, 
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        const particles = new THREE.Points(geometry, material);
+        scene.add(particles);
+
+        // --- 3. SHAPE GENERATORS ---
+        function getSphere() {
+            const arr = new Float32Array(particleCount * 3);
+            for(let i=0; i<particleCount; i++) {
+                const r = 20 * Math.cbrt(Math.random());
+                const theta = Math.random() * 2 * Math.PI;
+                const phi = Math.acos(2 * Math.random() - 1);
+                arr[i*3] = r * Math.sin(phi) * Math.cos(theta);
+                arr[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+                arr[i*3+2] = r * Math.cos(phi);
+            }
+            return arr;
+        }
+
+        function getHeart() {
+            const arr = new Float32Array(particleCount * 3);
+            for(let i=0; i<particleCount; i++) {
+                const t = Math.random() * Math.PI * 2;
+                const r = Math.random() * 2; 
+                const x = 16 * Math.pow(Math.sin(t), 3);
+                const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+                arr[i*3] = x + (Math.random()-0.5)*r;
+                arr[i*3+1] = y + (Math.random()-0.5)*r;
+                arr[i*3+2] = (Math.random() - 0.5) * 5;
+            }
+            return arr;
+        }
+
+        function getSaturn() {
+            const arr = new Float32Array(particleCount * 3);
+            for(let i=0; i<particleCount; i++) {
+                if(i < particleCount * 0.4) { 
+                    const r = 10 * Math.cbrt(Math.random());
+                    const theta = Math.random() * 2 * Math.PI;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    arr[i*3] = r * Math.sin(phi) * Math.cos(theta);
+                    arr[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+                    arr[i*3+2] = r * Math.cos(phi);
+                } else { 
+                    const r = 16 + Math.random() * 12;
+                    const theta = Math.random() * 2 * Math.PI;
+                    arr[i*3] = r * Math.cos(theta);
+                    arr[i*3+1] = (Math.random() - 0.5) * 1.5; 
+                    arr[i*3+2] = r * Math.sin(theta);
+                }
+            }
+            return arr;
+        }
+
+        function getFlower() {
+            const arr = new Float32Array(particleCount * 3);
+            for(let i=0; i<particleCount; i++) {
+                const theta = Math.random() * 2 * Math.PI;
+                const r = 22 * Math.cos(5 * theta) * Math.random(); 
+                arr[i*3] = r * Math.cos(theta);
+                arr[i*3+1] = r * Math.sin(theta);
+                arr[i*3+2] = (Math.random() - 0.5) * 4;
+            }
+            return arr;
+        }
+
+        function getFireworks() {
+            const arr = new Float32Array(particleCount * 3);
+            for(let i=0; i<particleCount; i++) {
+                const u = Math.random();
+                const v = Math.random();
+                const theta = 2 * Math.PI * u;
+                const phi = Math.acos(2 * v - 1);
+                const r = 30 * Math.random(); 
+                arr[i*3] = r * Math.sin(phi) * Math.cos(theta);
+                arr[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+                arr[i*3+2] = r * Math.cos(phi);
+            }
+            return arr;
+        }
+
+        const shapes = [getSphere(), getHeart(), getFlower(), getSaturn(), getFireworks()];
+        const shapeNames = ["Sphere", "Heart", "Flower", "Saturn", "Fireworks"];
+        let currentShapeIndex = 0;
+        let expansionFactor = 1.0;
+
+        function setTargetShape(index) {
+            currentShapeIndex = index;
+            const newPositions = shapes[index];
+            for(let i=0; i<particleCount*3; i++) {
+                targetPositions[i] = newPositions[i];
+            }
+            
+            // Update UI and trigger Pop Animation
+            const label = document.getElementById('currentShapeLabel');
+            label.innerText = "Shape: " + shapeNames[index];
+            
+            label.classList.remove('pop');
+            void label.offsetWidth; // Trigger reflow to restart animation
+            label.classList.add('pop');
+        }
+
+        // --- 4. MEDIAPIPE HAND TRACKING ---
+        const videoElement = document.getElementById('videoElement');
+        let handX = 0.5; 
+        let handY = 0.5;
+        let handVisible = false;
+        let isInitialized = false;
+        
+        function onResults(results) {
+            // Remove loading screen on first successful frame
+            if (!isInitialized) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('ui-container').style.opacity = '1';
+                isInitialized = true;
+            }
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                handVisible = true;
+                const landmarks = results.multiHandLandmarks[0];
+                
+                handX = landmarks[9].x; 
+                handY = landmarks[9].y; 
+                material.color.setHSL(handX, 1.0, 0.6);
+
+                const dx = landmarks[8].x - landmarks[4].x;
+                const dy = landmarks[8].y - landmarks[4].y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                expansionFactor = THREE.MathUtils.lerp(expansionFactor, Math.max(0.5, dist * 10), 0.1);
+
+                let fingersUp = 0;
+                if(landmarks[8].y < landmarks[6].y) fingersUp++;  
+                if(landmarks[12].y < landmarks[10].y) fingersUp++; 
+                if(landmarks[16].y < landmarks[14].y) fingersUp++; 
+                if(landmarks[20].y < landmarks[18].y) fingersUp++; 
+                if(landmarks[4].x < landmarks[3].x) fingersUp++;   
+
+                if(fingersUp >= 0 && fingersUp < shapes.length && fingersUp !== currentShapeIndex) {
+                    setTargetShape(fingersUp);
+                }
+            } else {
+                handVisible = false;
+                expansionFactor = THREE.MathUtils.lerp(expansionFactor, 1.0, 0.05);
+            }
+        }
+
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
+        hands.onResults(onResults);
+
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 640, height: 480
+        });
+        cameraUtils.start();
+
+        // --- 5. ANIMATION LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const positionsAttribute = geometry.attributes.position;
+            const currentArray = positionsAttribute.array;
+
+            const hand3DX = (handX - 0.5) * 80; 
+            const hand3DY = -(handY - 0.5) * 60; 
+
+            particles.rotation.y += 0.003;
+            particles.rotation.x += 0.001;
+
+            for(let i = 0; i < particleCount * 3; i+=3) {
+                const targetX = targetPositions[i] * expansionFactor;
+                const targetY = targetPositions[i+1] * expansionFactor;
+                const targetZ = targetPositions[i+2] * expansionFactor;
+
+                currentArray[i] += (targetX - currentArray[i]) * 0.08;
+                currentArray[i+1] += (targetY - currentArray[i+1]) * 0.08;
+                currentArray[i+2] += (targetZ - currentArray[i+2]) * 0.08;
+
+                if (handVisible) {
+                    const pX = currentArray[i];
+                    const pY = currentArray[i+1];
+                    const pZ = currentArray[i+2];
+                    
+                    const distX = pX - hand3DX;
+                    const distY = pY - hand3DY;
+                    const distZ = pZ - 10; 
+                    
+                    const dist = Math.sqrt(distX*distX + distY*distY + distZ*distZ);
+                    const repulsionRadius = 15;
+                    
+                    if (dist < repulsionRadius) {
+                        const force = (repulsionRadius - dist) / repulsionRadius;
+                        currentArray[i] += (distX / dist) * force * 1.5; 
+                        currentArray[i+1] += (distY / dist) * force * 1.5;
+                        currentArray[i+2] += (distZ / dist) * force * 1.5;
+                    }
+                }
+            }
+
+            positionsAttribute.needsUpdate = true;
+            composer.render();
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
