@@ -12,7 +12,7 @@ A real-time, browser-based 3D particle experience driven entirely by hand gestur
 
 <br>
 
-## ✨ Features
+##  Features
 
 * **Real-Time Hand Tracking:** Uses your webcam to instantly track hand and finger movements via MediaPipe AI directly in the browser.
 * **Dynamic Morphing Shapes:** Interpolates 6,000 particles smoothly between mathematical templates (Sphere, Heart, Flower, Saturn, Fireworks).
