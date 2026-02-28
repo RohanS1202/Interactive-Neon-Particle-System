@@ -6,13 +6,8 @@ A real-time, browser-based 3D particle experience driven entirely by hand gestur
 ![Threejs](https://img.shields.io/badge/threejs-black?style=for-the-badge&logo=three.js&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/javascript-%23323330.svg?style=for-the-badge&logo=javascript&logoColor=%23F7DF1E)
 
-<br>
 
-![Interactive Particle Demo](./demo.gif) 
-
-<br>
-
-##  Features
+## ✨ Features
 
 * **Real-Time Hand Tracking:** Uses your webcam to instantly track hand and finger movements via MediaPipe AI directly in the browser.
 * **Dynamic Morphing Shapes:** Interpolates 6,000 particles smoothly between mathematical templates (Sphere, Heart, Flower, Saturn, Fireworks).
